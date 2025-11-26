@@ -326,17 +326,17 @@ if "group_assignments" not in st.session_state:
 if "group_prices" not in st.session_state:
     st.session_state["group_prices"] = {}
 if "material_overrides" not in st.session_state:
-    st.session_state["material_overrides"] = {}
+    st.session_state["material_overrides"] = {}  # kept for presets but unused in pricing
 if "calc_df" not in st.session_state:
     st.session_state["calc_df"] = None
 if "preset_file_loaded_once" not in st.session_state:
     st.session_state["preset_file_loaded_once"] = False
-if "reset_existing_group_choice" not in st.session_state:
-    st.session_state["reset_existing_group_choice"] = False
 if "session_snapshots" not in st.session_state:
     st.session_state["session_snapshots"] = {}
 if "extra_groups_to_show" not in st.session_state:
     st.session_state["extra_groups_to_show"] = []
+if "reset_assign_widgets" not in st.session_state:
+    st.session_state["reset_assign_widgets"] = False
 
 # Load default preset only once at very beginning (if nothing in state yet)
 if not st.session_state["group_assignments"] and not st.session_state["group_prices"]:
@@ -486,7 +486,6 @@ In the **Material Pricing** area you can:
 - Enter one **Group Price per SQM** per group using stable number inputs **arranged in 4 columns**.  
 - **Old default groups show in green**, **new groups show in red**, and **default groups actually used in this Excel** show in a **bright highlight colour**.  
 - Groups not used in this campaign are hidden by default but can be **unhidden from a dropdown**.  
-- Optionally override a single material with its own price.  
 - Save/Load **group presets** and **session snapshots** so you can reuse them next campaign/tender.
 """
 )
@@ -738,60 +737,30 @@ if st.session_state["calc_df"] is not None:
         {m for m in calc_df["Material"].dropna().unique()} if "Material" in calc_df.columns else []
     )
 
+    # Always pull latest from session_state
     group_assignments = st.session_state["group_assignments"]
     group_prices = st.session_state["group_prices"]
-    material_overrides = st.session_state["material_overrides"]
 
-    # ---------- Editable mapping table ----------
-    mapping_df = pd.DataFrame({
-        "Material": materials,
-        "Group": [group_assignments.get(m, "") for m in materials]
-    })
-
-    st.markdown("**Current material → group mapping (editable)**")
-    edited_mapping_df = st.data_editor(
-        mapping_df,
-        num_rows="fixed",
-        use_container_width=True,
-        disabled=["Material"],
-        key="mapping_editor",
-    )
-
-    if st.button("Apply changes from mapping table"):
-        new_assignments = {}
-        for _, row in edited_mapping_df.iterrows():
-            m = row["Material"]
-            g = row["Group"]
-            if isinstance(g, str):
-                g = g.strip()
-            if g:
-                new_assignments[m] = g
-        st.session_state["group_assignments"] = new_assignments
-        group_assignments = new_assignments
-        st.success("Updated group assignments from mapping table.")
-    else:
-        group_assignments = st.session_state["group_assignments"]
-
-    # All known groups (from assignments + prices)
-    existing_groups = sorted(
-        {g for g in group_assignments.values() if g} |
-        {g for g in group_prices.keys() if g}
-    )
-
-    # Compute which groups are actually used in this sheet
-    used_groups = set(group_assignments.values())
-
-    used_default_groups = used_groups & DEFAULT_GROUP_NAMES
-
-    # ---------- STEP 1: Assign materials to groups (using dropdown + form) ----------
+    # ---------- STEP 1: Assign materials to groups (form, first) ----------
     st.markdown("**Step 1 – Assign materials to groups**")
 
-    # Reset widgets after a successful apply (done before widget creation)
-    if st.session_state.get("reset_existing_group_choice", False):
+    # Initialise widget state keys if missing
+    if "existing_group_choice" not in st.session_state:
+        st.session_state["existing_group_choice"] = "SelectExisting/None"
+    if "group_name_input" not in st.session_state:
+        st.session_state["group_name_input"] = ""
+    if "assign_materials" not in st.session_state:
+        st.session_state["assign_materials"] = []
+
+    # If flagged, reset widget values, then clear flag
+    if st.session_state.get("reset_assign_widgets", False):
         st.session_state["existing_group_choice"] = "SelectExisting/None"
         st.session_state["group_name_input"] = ""
         st.session_state["assign_materials"] = []
-        st.session_state["reset_existing_group_choice"] = False
+        st.session_state["reset_assign_widgets"] = False
+
+    # Compute existing_groups & used_groups based on current assignments
+    existing_groups = sorted({g for g in group_assignments.values() if g} | {g for g in group_prices.keys() if g})
 
     # Only show unassigned materials in the dropdown
     unassigned_materials = [m for m in materials if m not in group_assignments]
@@ -836,9 +805,50 @@ if st.session_state["calc_df"] is not None:
             for m in selected_materials:
                 group_assignments[m] = group_name
             st.session_state["group_assignments"] = group_assignments
-            # Trigger widget reset on next rerun
-            st.session_state["reset_existing_group_choice"] = True
+            # Reset widgets on next rerun
+            st.session_state["reset_assign_widgets"] = True
             st.success(f"Assigned group '{group_name}' to {len(selected_materials)} material(s).")
+
+    # Refresh assignments after possible updates from the form
+    group_assignments = st.session_state["group_assignments"]
+
+    # Recompute existing and used groups
+    existing_groups = sorted({g for g in group_assignments.values() if g} | {g for g in group_prices.keys() if g})
+    used_groups = set(group_assignments.values())
+    used_default_groups = used_groups & DEFAULT_GROUP_NAMES
+
+    # ---------- STEP 1b: Editable mapping table (after form) ----------
+    mapping_df = pd.DataFrame({
+        "Material": materials,
+        "Group": [group_assignments.get(m, "") for m in materials]
+    })
+
+    st.markdown("**Current material → group mapping (editable)**")
+    edited_mapping_df = st.data_editor(
+        mapping_df,
+        num_rows="fixed",
+        use_container_width=True,
+        disabled=["Material"],
+        key="mapping_editor",
+    )
+
+    if st.button("Apply changes from mapping table"):
+        new_assignments = {}
+        for _, row in edited_mapping_df.iterrows():
+            m = row["Material"]
+            g = row["Group"]
+            if isinstance(g, str):
+                g = g.strip()
+            if g:
+                new_assignments[m] = g
+        st.session_state["group_assignments"] = new_assignments
+        group_assignments = new_assignments
+        st.success("Updated group assignments from mapping table.")
+
+        # Recompute groups after applying
+        existing_groups = sorted({g for g in group_assignments.values() if g} | {g for g in group_prices.keys() if g})
+        used_groups = set(group_assignments.values())
+        used_default_groups = used_groups & DEFAULT_GROUP_NAMES
 
     # ---------- STEP 2: Set group prices (per SQM, AUD) ----------
     st.markdown("**Step 2 – Set group prices (per SQM, AUD)**")
@@ -934,31 +944,7 @@ if st.session_state["calc_df"] is not None:
         st.session_state["group_prices"] = new_group_prices
         group_prices = new_group_prices
 
-    # ---------- STEP 3: Optional material overrides ----------
-    st.markdown("**Step 3 – Optional material overrides (per SQM, AUD)**")
-
-    override_rows = []
-    for m in materials:
-        override_rows.append(
-            {
-                "Material": m,
-                "Override Price per SQM (AUD)": material_overrides.get(m, np.nan),
-            }
-        )
-    override_df = pd.DataFrame(override_rows)
-    edited_override_df = st.data_editor(
-        override_df,
-        num_rows="fixed",
-        use_container_width=True,
-        key="material_override_editor",
-    )
-
-    st.session_state["material_overrides"] = dict(
-        zip(edited_override_df["Material"], edited_override_df["Override Price per SQM (AUD)"])
-    )
-    material_overrides = st.session_state["material_overrides"]
-
-    # Build preset data from current state
+    # Build preset data from current state (overrides kept but not used in pricing)
     preset_data = {
         "group_assignments": st.session_state["group_assignments"],
         "group_prices": st.session_state["group_prices"],
@@ -1057,18 +1043,11 @@ if st.session_state["calc_df"] is not None:
 
     group_assignment_map = st.session_state["group_assignments"]
     group_price_map = st.session_state["group_prices"]
-    material_override_map = st.session_state["material_overrides"]
 
     calc_with_price = calc_df.copy()
 
-    # Resolve base price per SQM (AUD) for each row:
-    # 1) If material override exists, use that
-    # 2) Else if group has a price, use group price
-    # 3) Else NaN
+    # Resolve base price per SQM (AUD) for each row from group only
     def resolve_base_price(material):
-        override = material_override_map.get(material)
-        if override is not None and not pd.isna(override):
-            return override
         group = group_assignment_map.get(material)
         if group:
             gp = group_price_map.get(group)
