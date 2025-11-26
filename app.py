@@ -829,36 +829,6 @@ if st.session_state["calc_df"] is not None:
     })
     st.dataframe(mapping_df, use_container_width=True)
 
-    # ----- Group-level SQM + group price summary -----
-    if "Material" in calc_df.columns and any(group_assignments.get(m) for m in materials):
-        calc_with_group = calc_df.copy()
-        calc_with_group["Group"] = calc_with_group["Material"].map(group_assignments).fillna("")
-        grouped_rows = calc_with_group[calc_with_group["Group"] != ""]
-        sqm_cols = [c for c in ["SQM per unit", "SQM per annum", "SQM per run"] if c in grouped_rows.columns]
-        if not grouped_rows.empty and sqm_cols:
-            group_summary = grouped_rows.groupby("Group")[sqm_cols].sum().reset_index()
-            # Attach current group price per SQM (AUD)
-            group_summary["Group Price per SQM (AUD)"] = (
-                group_summary["Group"].map(group_prices).round(2)
-                if group_prices
-                else np.nan
-            )
-            for c in sqm_cols:
-                group_summary[c] = group_summary[c].round(2)
-            st.subheader("Square metres & price per SQM by Group")
-            st.dataframe(group_summary, use_container_width=True)
-
-            # Download group SQM + price summary
-            group_buf = BytesIO()
-            group_summary.to_excel(group_buf, index=False, sheet_name="GROUP_SQM")
-            group_buf.seek(0)
-            st.download_button(
-                "Download group SQM & price summary (Excel)",
-                data=group_buf,
-                file_name="group_sqm_summary.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
     # ---------- STEP 2: Set group prices (per SQM, AUD) ----------
     st.markdown("**Step 2 – Set group prices (per SQM, AUD)**")
 
@@ -1138,6 +1108,47 @@ if st.session_state["calc_df"] is not None:
     price_cols = [c for c in calc_with_price.columns if "Price" in c]
     for col in price_cols:
         calc_with_price[col] = calc_with_price[col].round(2)
+
+    # ---------- Group-level sqm + price summary (what you asked for) ----------
+    if "Material" in calc_with_price.columns:
+        calc_with_group = calc_with_price.copy()
+        calc_with_group["Group"] = calc_with_group["Material"].map(group_assignment_map).fillna("")
+        grouped_rows = calc_with_group[calc_with_group["Group"] != ""]
+        if not grouped_rows.empty:
+            # Sum sqm and price per group
+            agg_dict = {}
+            for c in ["SQM per unit", "SQM per annum", "SQM per run"]:
+                if c in grouped_rows.columns:
+                    agg_dict[c] = "sum"
+            for c in ["Price per annum (AUD)", "Price per run (AUD)"]:
+                if c in grouped_rows.columns:
+                    agg_dict[c] = "sum"
+
+            group_summary_full = grouped_rows.groupby("Group").agg(agg_dict).reset_index()
+
+            # Attach group price per SQM (AUD)
+            group_summary_full["Group Price per SQM (AUD)"] = (
+                group_summary_full["Group"].map(group_price_map).round(2)
+            )
+
+            # Round sqm and price columns
+            for c in group_summary_full.columns:
+                if c != "Group":
+                    group_summary_full[c] = group_summary_full[c].round(2)
+
+            st.subheader("Square metres & prices by Group (including per run & per annum)")
+            st.dataframe(group_summary_full, use_container_width=True)
+
+            # Download
+            group_buf = BytesIO()
+            group_summary_full.to_excel(group_buf, index=False, sheet_name="GROUP_SQM_PRICE")
+            group_buf.seek(0)
+            st.download_button(
+                "Download group sqm & price summary (Excel)",
+                data=group_buf,
+                file_name="group_sqm_price_summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 
     # Build a display copy with $ sign for price columns
     display_df = calc_with_price.copy()
