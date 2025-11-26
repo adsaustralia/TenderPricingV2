@@ -467,8 +467,8 @@ In this setup, **Qty per run** can either come from:
 In the **Material Pricing** area you can:
 - Assign each material to a **Group name** (e.g. "3mm ACM", "Posters", "Window Vinyl").  
 - Either **type a new group name** or **select an existing group** from a dropdown (which always starts at "SelectExisting/None").  
-- See **SQM totals per group**.  
-- Enter one **Group Price per SQM** per group using stable number inputs.  
+- See **SQM totals per group** **and each group's price per SQM**.  
+- Enter one **Group Price per SQM** per group using stable number inputs **arranged in 4 columns**.  
 - Optionally override a single material with its own price.  
 - Save/Load **group presets** so you can reuse them next campaign/tender.
 """
@@ -800,7 +800,7 @@ if st.session_state["calc_df"] is not None:
     })
     st.dataframe(mapping_df, use_container_width=True)
 
-    # ----- Group-level SQM summary -----
+    # ----- Group-level SQM + group price summary -----
     if "Material" in calc_df.columns and any(group_assignments.get(m) for m in materials):
         calc_with_group = calc_df.copy()
         calc_with_group["Group"] = calc_with_group["Material"].map(group_assignments).fillna("")
@@ -808,17 +808,23 @@ if st.session_state["calc_df"] is not None:
         sqm_cols = [c for c in ["SQM per unit", "SQM per annum", "SQM per run"] if c in grouped_rows.columns]
         if not grouped_rows.empty and sqm_cols:
             group_summary = grouped_rows.groupby("Group")[sqm_cols].sum().reset_index()
+            # Attach current group price per SQM (AUD)
+            group_summary["Group Price per SQM (AUD)"] = (
+                group_summary["Group"].map(group_prices).round(2)
+                if group_prices
+                else np.nan
+            )
             for c in sqm_cols:
                 group_summary[c] = group_summary[c].round(2)
-            st.subheader("Square metres by Group")
+            st.subheader("Square metres & price per SQM by Group")
             st.dataframe(group_summary, use_container_width=True)
 
-            # Download group SQM summary
+            # Download group SQM + price summary
             group_buf = BytesIO()
             group_summary.to_excel(group_buf, index=False, sheet_name="GROUP_SQM")
             group_buf.seek(0)
             st.download_button(
-                "Download group SQM summary (Excel)",
+                "Download group SQM & price summary (Excel)",
                 data=group_buf,
                 file_name="group_sqm_summary.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -836,7 +842,13 @@ if st.session_state["calc_df"] is not None:
     if not all_groups:
         st.info("No groups yet. Assign at least one material to a group in Step 1.")
     else:
-        for g in all_groups:
+        # Show price inputs in a 4-column grid
+        cols_per_row = 4
+        for i, g in enumerate(all_groups):
+            if i % cols_per_row == 0:
+                cols = st.columns(cols_per_row)
+            col = cols[i % cols_per_row]
+
             existing_price = group_prices.get(g)
             if existing_price is None or (isinstance(existing_price, float) and math.isnan(existing_price)):
                 initial_value = 0.0
@@ -845,15 +857,19 @@ if st.session_state["calc_df"] is not None:
                     initial_value = float(existing_price)
                 except Exception:
                     initial_value = 0.0
-            price = st.number_input(
-                f"Price per SQM (AUD) for group '{g}'",
-                min_value=0.0,
-                max_value=1_000_000.0,
-                step=0.01,
-                format="%.2f",
-                value=initial_value,
-                key=f"group_price_input_{g}",
-            )
+
+            with col:
+                st.caption(f"Price per SQM (AUD) for group '{g}'")
+                price = st.number_input(
+                    "",
+                    min_value=0.0,
+                    max_value=1_000_000.0,
+                    step=0.01,
+                    format="%.2f",
+                    value=initial_value,
+                    key=f"group_price_input_{g}",
+                )
+
             if price == 0.0 and (existing_price is None or (isinstance(existing_price, float) and math.isnan(existing_price))):
                 new_group_prices[g] = np.nan
             else:
