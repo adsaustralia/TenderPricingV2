@@ -9,6 +9,21 @@ from openpyxl import load_workbook
 
 st.set_page_config(page_title="Tender Pricing App", layout="wide")
 
+# ---------- Defaults meta (for colouring old vs new groups) ----------
+DEFAULT_GROUP_NAMES = {
+    "CORFLUTE_3MM",
+    "SCREENBOARD_2MM",
+    "POSTER_BOARD",
+    "WINDOW_SUPERCLING",
+    "BANNER_SYNTHETIC",
+    "FERROUS",
+    "VINYL_MPI1105",
+    "VINYL_3M7725",
+    "VINYL_ARLON8000",
+    "BACKLIT_DURATRAN",
+    "BRAILLE_SIGNS",
+}
+
 # ---------- Helpers ----------
 
 def num_to_col_letters(n: int) -> str:
@@ -318,6 +333,8 @@ if "preset_file_loaded_once" not in st.session_state:
     st.session_state["preset_file_loaded_once"] = False
 if "reset_existing_group_choice" not in st.session_state:
     st.session_state["reset_existing_group_choice"] = False
+if "hidden_groups" not in st.session_state:
+    st.session_state["hidden_groups"] = []
 
 # Load default preset only once at very beginning (if nothing in state yet)
 if not st.session_state["group_assignments"] and not st.session_state["group_prices"]:
@@ -469,6 +486,8 @@ In the **Material Pricing** area you can:
 - Either **type a new group name** or **select an existing group** from a dropdown (which always starts at "SelectExisting/None").  
 - See **SQM totals per group** **and each group's price per SQM**.  
 - Enter one **Group Price per SQM** per group using stable number inputs **arranged in 4 columns**.  
+- **Old default groups show in green**, **new groups show in red** so you can see where you still need to key prices.  
+- Hide any groups you don't want to see in this campaign.  
 - Optionally override a single material with its own price.  
 - Save/Load **group presets** so you can reuse them next campaign/tender.
 """
@@ -838,13 +857,24 @@ if st.session_state["calc_df"] is not None:
         {g for g in group_prices.keys() if g}
     )
 
+    # Allow hiding groups from the pricing UI
+    current_hidden = st.session_state["hidden_groups"]
+    hidden_groups = st.multiselect(
+        "Hide these groups from pricing UI (e.g. not relevant for this campaign):",
+        options=all_groups,
+        default=current_hidden,
+        key="hidden_groups_selector",
+    )
+    st.session_state["hidden_groups"] = hidden_groups
+
     new_group_prices = {}
     if not all_groups:
         st.info("No groups yet. Assign at least one material to a group in Step 1.")
     else:
         # Show price inputs in a 4-column grid
         cols_per_row = 4
-        for i, g in enumerate(all_groups):
+        visible_groups = [g for g in all_groups if g not in hidden_groups]
+        for i, g in enumerate(visible_groups):
             if i % cols_per_row == 0:
                 cols = st.columns(cols_per_row)
             col = cols[i % cols_per_row]
@@ -858,8 +888,16 @@ if st.session_state["calc_df"] is not None:
                 except Exception:
                     initial_value = 0.0
 
+            # Colour caption: green for default groups, red for new groups
+            is_default_group = g in DEFAULT_GROUP_NAMES
+            caption_color = "green" if is_default_group else "red"
             with col:
-                st.caption(f"Price per SQM (AUD) for group '{g}'")
+                st.markdown(
+                    f"<div style='color:{caption_color}; font-weight:600; font-size:0.85rem;'>"
+                    f"Price per SQM (AUD) for group '{g}'"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
                 price = st.number_input(
                     "",
                     min_value=0.0,
@@ -874,6 +912,13 @@ if st.session_state["calc_df"] is not None:
                 new_group_prices[g] = np.nan
             else:
                 new_group_prices[g] = price
+
+        # Keep prices for hidden groups unchanged
+        for g in hidden_groups:
+            if g in group_prices:
+                new_group_prices[g] = group_prices[g]
+            else:
+                new_group_prices[g] = np.nan
 
         st.session_state["group_prices"] = new_group_prices
         group_prices = new_group_prices
