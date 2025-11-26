@@ -429,7 +429,7 @@ default_cols_labels = [
     col_labels[l] for l in st.session_state["hidden_cols_letters"] if l in col_labels
 ]
 
-# The key ensures Streamlit keeps the selection across reruns.
+# Multiselect for columns to hide
 cols_to_hide_labels = st.multiselect(
     "Select columns to HIDE (by Excel letter):",
     options=col_options_labels,
@@ -1213,43 +1213,47 @@ if st.session_state["calc_df"] is not None:
 
     st.subheader("Write SQM & pricing back into original workbook")
 
+    # Helper to normalise column letters typed by the user
+    def normalise_col_letters(s: str):
+        if not s:
+            return None
+        s = s.strip().upper()
+        if not re.fullmatch(r"[A-Z]+", s):
+            return None
+        return s
+
     if layout_type == "Items are in rows (BP-style)":
-        st.caption("Choose which Excel COLUMNS should receive the SQM and price values for each row.")
+        st.caption("Type the exact Excel column letters where you want SQM and prices to go (e.g. N, Q, AA). Leave blank to skip a field.")
 
-        letters = list(col_letters.keys())
+        sqm_annum_col_str = st.text_input(
+            "Excel column for SQM per annum (optional, e.g. N or AA)",
+            value="",
+            key="out_sqm_annum_col_str",
+        )
+        sqm_run_col_str = st.text_input(
+            "Excel column for SQM per run (optional, e.g. O or AB)",
+            value="",
+            key="out_sqm_run_col_str",
+        )
+        price_annum_col_str = st.text_input(
+            "Excel column for Price per annum (AUD) (optional, e.g. P or AC)",
+            value="",
+            key="out_price_annum_col_str",
+        )
+        price_run_col_str = st.text_input(
+            "Excel column for Price per run (AUD) (optional, e.g. Q or AD)",
+            value="",
+            key="out_price_run_col_str",
+        )
 
-        sqm_annum_col_letter = select_letter(
-            "Column for SQM per annum (optional)",
-            options_letters=letters,
-            default_letter=None,
-            key="out_sqm_annum_col",
-            allow_none=True,
-        )
-        sqm_run_col_letter = select_letter(
-            "Column for SQM per run (optional)",
-            options_letters=letters,
-            default_letter=None,
-            key="out_sqm_run_col",
-            allow_none=True,
-        )
-        price_annum_col_letter = select_letter(
-            "Column for Price per annum (AUD) (optional)",
-            options_letters=letters,
-            default_letter=None,
-            key="out_price_annum_col",
-            allow_none=True,
-        )
-        price_run_col_letter = select_letter(
-            "Column for Price per run (AUD) (optional)",
-            options_letters=letters,
-            default_letter=None,
-            key="out_price_run_col",
-            allow_none=True,
-        )
+        sqm_annum_col_letter = normalise_col_letters(sqm_annum_col_str)
+        sqm_run_col_letter = normalise_col_letters(sqm_run_col_str)
+        price_annum_col_letter = normalise_col_letters(price_annum_col_str)
+        price_run_col_letter = normalise_col_letters(price_run_col_str)
 
         if st.button("Build original workbook with SQM & prices filled (rows layout)"):
             if not any([sqm_annum_col_letter, sqm_run_col_letter, price_annum_col_letter, price_run_col_letter]):
-                st.warning("Please choose at least one output column.")
+                st.warning("Please type at least one output column (e.g. N, Q, AA).")
             else:
                 wb2 = load_workbook(BytesIO(file_bytes))
                 ws2 = wb2[sheet_name]
@@ -1289,44 +1293,46 @@ if st.session_state["calc_df"] is not None:
                 )
 
     elif layout_type == "Items are in columns (Foot Locker-style)":
-        st.caption("Choose which Excel ROWS should receive the SQM and price values across each material column.")
+        st.caption("Type the exact Excel row numbers where you want SQM and prices to go across each material column (e.g. 150, 200). Leave blank to skip a field.")
 
-        max_row_out, _ = df.shape
-        row_options2 = list(range(1, max_row_out + 2))  # include header if needed
-
-        sqm_annum_row = st.selectbox(
-            "Row for SQM per annum (across columns, optional)",
-            options=["(none)"] + row_options2,
-            index=0,
-            key="out_sqm_annum_row",
+        sqm_annum_row_str = st.text_input(
+            "Row for SQM per annum (across columns, optional, e.g. 120)",
+            value="",
+            key="out_sqm_annum_row_str",
         )
-        sqm_run_row = st.selectbox(
-            "Row for SQM per run (across columns, optional)",
-            options=["(none)"] + row_options2,
-            index=0,
-            key="out_sqm_run_row",
+        sqm_run_row_str = st.text_input(
+            "Row for SQM per run (across columns, optional, e.g. 121)",
+            value="",
+            key="out_sqm_run_row_str",
         )
-        price_annum_row = st.selectbox(
-            "Row for Price per annum (AUD) (across columns, optional)",
-            options=["(none)"] + row_options2,
-            index=0,
-            key="out_price_annum_row",
+        price_annum_row_str = st.text_input(
+            "Row for Price per annum (AUD) (across columns, optional, e.g. 122)",
+            value="",
+            key="out_price_annum_row_str",
         )
-        price_run_row = st.selectbox(
-            "Row for Price per run (AUD) (across columns, optional)",
-            options=["(none)"] + row_options2,
-            index=0,
-            key="out_price_run_row",
+        price_run_row_str = st.text_input(
+            "Row for Price per run (AUD) (across columns, optional, e.g. 123)",
+            value="",
+            key="out_price_run_row_str",
         )
 
-        sqm_annum_row = None if sqm_annum_row == "(none)" else sqm_annum_row
-        sqm_run_row = None if sqm_run_row == "(none)" else sqm_run_row
-        price_annum_row = None if price_annum_row == "(none)" else price_annum_row
-        price_run_row = None if price_run_row == "(none)" else price_run_row
+        def parse_row_num(s: str):
+            if not s:
+                return None
+            s = s.strip()
+            if not s.isdigit():
+                return None
+            n = int(s)
+            return n if n > 0 else None
+
+        sqm_annum_row = parse_row_num(sqm_annum_row_str)
+        sqm_run_row = parse_row_num(sqm_run_row_str)
+        price_annum_row = parse_row_num(price_annum_row_str)
+        price_run_row = parse_row_num(price_run_row_str)
 
         if st.button("Build original workbook with SQM & prices filled (columns layout)"):
             if not any([sqm_annum_row, sqm_run_row, price_annum_row, price_run_row]):
-                st.warning("Please choose at least one output row.")
+                st.warning("Please type at least one output row (e.g. 120, 150, 200).")
             else:
                 wb2 = load_workbook(BytesIO(file_bytes))
                 ws2 = wb2[sheet_name]
