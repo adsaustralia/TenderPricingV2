@@ -421,23 +421,34 @@ st.header("Step 2 – Hide / Unhide Rows & Columns")
 
 all_letters = list(col_letters.keys())
 
-# Columns to hide (remembered in session_state + snapshots)
-default_cols_labels = [col_labels[l] for l in st.session_state["hidden_cols_letters"] if l in col_labels]
+# Build options for columns
+col_options_labels = [col_labels[ltr] for ltr in all_letters]
+
+# Determine default labels based on saved letters
+default_cols_labels = [
+    col_labels[l] for l in st.session_state["hidden_cols_letters"] if l in col_labels
+]
+
+# The key ensures Streamlit keeps the selection across reruns.
 cols_to_hide_labels = st.multiselect(
     "Select columns to HIDE (by Excel letter):",
-    options=[col_labels[ltr] for ltr in all_letters],
-    default=default_cols_labels,
+    options=col_options_labels,
+    default=default_cols_labels if "hidden_cols_multiselect" not in st.session_state else None,
+    key="hidden_cols_multiselect",
 )
-cols_to_hide_letters = [opt.split(" - ")[0] for opt in cols_to_hide_labels]
+# Convert labels back to letters
+cols_to_hide_letters = [lab.split(" - ")[0] for lab in cols_to_hide_labels]
 st.session_state["hidden_cols_letters"] = cols_to_hide_letters
 
 # Rows to hide (Excel-style rows: include header row 1)
 max_row = len(df) + 1  # +1 for header row
 row_numbers = list(range(1, max_row + 1))
+
 rows_to_hide_display = st.multiselect(
     "Select rows to HIDE (by Excel row number):",
     options=row_numbers,
-    default=st.session_state["hidden_rows_numbers"],
+    default=st.session_state["hidden_rows_numbers"] if "hidden_rows_multiselect" not in st.session_state else None,
+    key="hidden_rows_multiselect",
 )
 st.session_state["hidden_rows_numbers"] = rows_to_hide_display
 
