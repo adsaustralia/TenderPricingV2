@@ -757,17 +757,20 @@ if st.session_state["calc_df"] is not None:
         key="mapping_editor",
     )
 
-    # Update group_assignments from edited table
-    new_assignments = {}
-    for _, row in edited_mapping_df.iterrows():
-        m = row["Material"]
-        g = row["Group"]
-        if isinstance(g, str):
-            g = g.strip()
-        if g:
-            new_assignments[m] = g
-    group_assignments = new_assignments
-    st.session_state["group_assignments"] = group_assignments
+    if st.button("Apply changes from mapping table"):
+        new_assignments = {}
+        for _, row in edited_mapping_df.iterrows():
+            m = row["Material"]
+            g = row["Group"]
+            if isinstance(g, str):
+                g = g.strip()
+            if g:
+                new_assignments[m] = g
+        st.session_state["group_assignments"] = new_assignments
+        group_assignments = new_assignments
+        st.success("Updated group assignments from mapping table.")
+    else:
+        group_assignments = st.session_state["group_assignments"]
 
     # All known groups (from assignments + prices)
     existing_groups = sorted(
@@ -780,40 +783,43 @@ if st.session_state["calc_df"] is not None:
 
     used_default_groups = used_groups & DEFAULT_GROUP_NAMES
 
-    # ---------- STEP 1: Assign materials to groups (using dropdown) ----------
+    # ---------- STEP 1: Assign materials to groups (using dropdown + form) ----------
     st.markdown("**Step 1 – Assign materials to groups**")
+
+    # Reset widgets after a successful apply (done before widget creation)
+    if st.session_state.get("reset_existing_group_choice", False):
+        st.session_state["existing_group_choice"] = "SelectExisting/None"
+        st.session_state["group_name_input"] = ""
+        st.session_state["assign_materials"] = []
+        st.session_state["reset_existing_group_choice"] = False
 
     # Only show unassigned materials in the dropdown
     unassigned_materials = [m for m in materials if m not in group_assignments]
 
-    selected_materials = st.multiselect(
-        "Select material(s) to assign to a group (only unassigned materials are shown)",
-        options=unassigned_materials,
-        key="assign_materials",
-    )
-
-    # Reset existing group choice after a successful apply (so dropdown shows "SelectExisting/None")
-    if st.session_state.get("reset_existing_group_choice", False):
-        if "existing_group_choice" in st.session_state:
-            del st.session_state["existing_group_choice"]
-        st.session_state["reset_existing_group_choice"] = False
-
-    col_g1, col_g2 = st.columns(2)
-
-    with col_g1:
-        existing_group_choice = st.selectbox(
-            "Pick existing group (optional)",
-            options=["SelectExisting/None"] + existing_groups,
-            index=0,
-            key="existing_group_choice",
-        )
-    with col_g2:
-        group_name_input = st.text_input(
-            "Or type new group name",
-            key="group_name_input",
+    with st.form("assign_group_form"):
+        selected_materials = st.multiselect(
+            "Select material(s) to assign to a group (only unassigned materials are shown)",
+            options=unassigned_materials,
+            key="assign_materials",
         )
 
-    if st.button("Apply group to selected materials"):
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            existing_group_choice = st.selectbox(
+                "Pick existing group (optional)",
+                options=["SelectExisting/None"] + existing_groups,
+                index=0,
+                key="existing_group_choice",
+            )
+        with col_g2:
+            group_name_input = st.text_input(
+                "Or type new group name",
+                key="group_name_input",
+            )
+
+        submitted_assign = st.form_submit_button("Apply group to selected materials")
+
+    if submitted_assign:
         manual = group_name_input.strip()
         if manual:
             group_name = manual
@@ -830,6 +836,7 @@ if st.session_state["calc_df"] is not None:
             for m in selected_materials:
                 group_assignments[m] = group_name
             st.session_state["group_assignments"] = group_assignments
+            # Trigger widget reset on next rerun
             st.session_state["reset_existing_group_choice"] = True
             st.success(f"Assigned group '{group_name}' to {len(selected_materials)} material(s).")
 
