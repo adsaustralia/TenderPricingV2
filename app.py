@@ -335,6 +335,8 @@ if "reset_existing_group_choice" not in st.session_state:
     st.session_state["reset_existing_group_choice"] = False
 if "hidden_groups" not in st.session_state:
     st.session_state["hidden_groups"] = []
+if "session_snapshots" not in st.session_state:
+    st.session_state["session_snapshots"] = {}
 
 # Load default preset only once at very beginning (if nothing in state yet)
 if not st.session_state["group_assignments"] and not st.session_state["group_prices"]:
@@ -486,10 +488,10 @@ In the **Material Pricing** area you can:
 - Either **type a new group name** or **select an existing group** from a dropdown (which always starts at "SelectExisting/None").  
 - See **SQM totals per group** **and each group's price per SQM**.  
 - Enter one **Group Price per SQM** per group using stable number inputs **arranged in 4 columns**.  
-- **Old default groups show in green**, **new groups show in red** so you can see where you still need to key prices.  
+- **Old default groups show in green**, **new groups show in red**, and **default groups actually used in this Excel** show in a **bright highlight colour**.  
 - Hide any groups you don't want to see in this campaign.  
 - Optionally override a single material with its own price.  
-- Save/Load **group presets** so you can reuse them next campaign/tender.
+- Save/Load **group presets** and **session snapshots** so you can reuse them next campaign/tender.
 """
 )
 
@@ -762,6 +764,14 @@ if st.session_state["calc_df"] is not None:
         {g for g in group_prices.keys() if g}
     )
 
+    # Compute which groups are actually used in this sheet
+    used_groups = set()
+    for m in materials:
+        g = group_assignments.get(m)
+        if g:
+            used_groups.add(g)
+    used_default_groups = used_groups & DEFAULT_GROUP_NAMES
+
     # ---------- STEP 1: Assign materials to groups ----------
     st.markdown("**Step 1 – Assign materials to groups**")
 
@@ -871,6 +881,13 @@ if st.session_state["calc_df"] is not None:
     if not all_groups:
         st.info("No groups yet. Assign at least one material to a group in Step 1.")
     else:
+        st.caption(
+            "Colour legend: "
+            "<span style='color:green;'>Green = default group (not used in this sheet)</span>, "
+            "<span style='color:#ff8800;'>Orange = default group used in this sheet</span>, "
+            "<span style='color:red;'>Red = new group</span>.",
+            unsafe_allow_html=True,
+        )
         # Show price inputs in a 4-column grid
         cols_per_row = 4
         visible_groups = [g for g in all_groups if g not in hidden_groups]
@@ -888,9 +905,19 @@ if st.session_state["calc_df"] is not None:
                 except Exception:
                     initial_value = 0.0
 
-            # Colour caption: green for default groups, red for new groups
+            # Colour caption:
+            # - orange for default groups actually used in this sheet
+            # - green for other default groups
+            # - red for new groups
             is_default_group = g in DEFAULT_GROUP_NAMES
-            caption_color = "green" if is_default_group else "red"
+            is_used_default = g in used_default_groups
+            if is_default_group and is_used_default:
+                caption_color = "#ff8800"  # bright orange
+            elif is_default_group:
+                caption_color = "green"
+            else:
+                caption_color = "red"
+
             with col:
                 st.markdown(
                     f"<div style='color:{caption_color}; font-weight:600; font-size:0.85rem;'>"
@@ -953,6 +980,50 @@ if st.session_state["calc_df"] is not None:
         "group_prices": st.session_state["group_prices"],
         "material_overrides": st.session_state["material_overrides"],
     }
+
+    # ---------- Session snapshots (save this workbook's working state) ----------
+    st.subheader("Session snapshots (save this workbook's pricing setup)")
+    col_s1, col_s2 = st.columns([2, 1])
+
+    with col_s1:
+        snapshot_name = st.text_input(
+            "Snapshot name (e.g. 'BP Tender Jan', 'FootLocker Xmas')",
+            key="snapshot_name",
+        )
+    with col_s2:
+        if st.button("Save snapshot"):
+            name = snapshot_name.strip()
+            if not name:
+                st.warning("Please enter a snapshot name before saving.")
+            else:
+                st.session_state["session_snapshots"][name] = {
+                    "group_assignments": st.session_state["group_assignments"],
+                    "group_prices": st.session_state["group_prices"],
+                    "material_overrides": st.session_state["material_overrides"],
+                    "hidden_groups": st.session_state["hidden_groups"],
+                }
+                st.success(f"Saved snapshot '{name}'. You can load it later in this browser session.")
+
+    if st.session_state["session_snapshots"]:
+        col_l1, col_l2 = st.columns([2, 1])
+        with col_l1:
+            snapshot_options = ["(none)"] + list(st.session_state["session_snapshots"].keys())
+            snapshot_to_load = st.selectbox(
+                "Load existing snapshot",
+                options=snapshot_options,
+                key="snapshot_to_load",
+            )
+        with col_l2:
+            if st.button("Load snapshot"):
+                if snapshot_to_load != "(none)":
+                    snap = st.session_state["session_snapshots"][snapshot_to_load]
+                    st.session_state["group_assignments"] = snap.get("group_assignments", {})
+                    st.session_state["group_prices"] = snap.get("group_prices", {})
+                    st.session_state["material_overrides"] = snap.get("material_overrides", {})
+                    st.session_state["hidden_groups"] = snap.get("hidden_groups", [])
+                    st.success(f"Loaded snapshot '{snapshot_to_load}'. Rerun mappings if you've changed Excel.")
+                else:
+                    st.info("Select a snapshot to load.")
 
     st.markdown("**Preset saving options**")
     col_left, col_right = st.columns(2)
