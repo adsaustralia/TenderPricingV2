@@ -337,6 +337,18 @@ if "extra_groups_to_show" not in st.session_state:
     st.session_state["extra_groups_to_show"] = []
 if "reset_assign_widgets" not in st.session_state:
     st.session_state["reset_assign_widgets"] = False
+# snapshot-able config defaults
+if "ds_syn_input" not in st.session_state:
+    st.session_state["ds_syn_input"] = "ds,double sided,double-sided,2s,2 sided,2sided,double"
+if "ss_syn_input" not in st.session_state:
+    st.session_state["ss_syn_input"] = "ss,single sided,single-sided,1s,1 sided,1sided,single"
+if "double_sided_loading_percent" not in st.session_state:
+    st.session_state["double_sided_loading_percent"] = 25.0
+# hide/unhide state (columns/rows)
+if "hidden_cols_letters" not in st.session_state:
+    st.session_state["hidden_cols_letters"] = []
+if "hidden_rows_numbers" not in st.session_state:
+    st.session_state["hidden_rows_numbers"] = []
 
 # Load default preset only once at very beginning (if nothing in state yet)
 if not st.session_state["group_assignments"] and not st.session_state["group_prices"]:
@@ -409,13 +421,15 @@ st.header("Step 2 – Hide / Unhide Rows & Columns")
 
 all_letters = list(col_letters.keys())
 
-# Columns to hide
+# Columns to hide (remembered in session_state + snapshots)
+default_cols_labels = [col_labels[l] for l in st.session_state["hidden_cols_letters"] if l in col_labels]
 cols_to_hide_labels = st.multiselect(
     "Select columns to HIDE (by Excel letter):",
     options=[col_labels[ltr] for ltr in all_letters],
-    default=[],
+    default=default_cols_labels,
 )
 cols_to_hide_letters = [opt.split(" - ")[0] for opt in cols_to_hide_labels]
+st.session_state["hidden_cols_letters"] = cols_to_hide_letters
 
 # Rows to hide (Excel-style rows: include header row 1)
 max_row = len(df) + 1  # +1 for header row
@@ -423,8 +437,9 @@ row_numbers = list(range(1, max_row + 1))
 rows_to_hide_display = st.multiselect(
     "Select rows to HIDE (by Excel row number):",
     options=row_numbers,
-    default=[],
+    default=st.session_state["hidden_rows_numbers"],
 )
+st.session_state["hidden_rows_numbers"] = rows_to_hide_display
 
 # Preview with hidden rows/cols (Excel-like view)
 preview_excel_view = excel_view.copy()
@@ -493,6 +508,7 @@ In the **Material Pricing** area you can:
 layout_type = st.radio(
     "How are items laid out in this sheet?",
     ["Items are in rows (BP-style)", "Items are in columns (Foot Locker-style)"],
+    key="layout_type_choice",
 )
 
 # DS/SS synonyms + loading
@@ -500,11 +516,13 @@ st.subheader("Double-sided / Single-sided configuration")
 
 ds_syn_input = st.text_input(
     "Values meaning DOUBLE-SIDED (comma-separated)",
-    value="ds,double sided,double-sided,2s,2 sided,2sided,double",
+    value=st.session_state["ds_syn_input"],
+    key="ds_syn_input",
 )
 ss_syn_input = st.text_input(
     "Values meaning SINGLE-SIDED (comma-separated)",
-    value="ss,single sided,single-sided,1s,1 sided,1sided,single",
+    value=st.session_state["ss_syn_input"],
+    key="ss_syn_input",
 )
 
 ds_synonyms = [s.strip().lower() for s in ds_syn_input.split(",") if s.strip()]
@@ -514,8 +532,9 @@ double_sided_loading_percent = st.number_input(
     "Double-sided loading % (e.g. 25 for 25% extra over single-sided)",
     min_value=0.0,
     max_value=500.0,
-    value=25.0,
+    value=st.session_state["double_sided_loading_percent"],
     step=1.0,
+    key="double_sided_loading_percent",
 )
 
 # Start from stored calculation (so it survives reruns)
@@ -588,6 +607,7 @@ if layout_type == "Items are in rows (BP-style)":
     side_mode = st.selectbox(
         "Choose how DS/SS is stored:",
         ["Separate column", "Embedded in another column", "Not available (assume SS)"],
+        key="side_mode_rows",
     )
 
     side_col_letter = None
@@ -635,26 +655,31 @@ elif layout_type == "Items are in columns (Foot Locker-style)":
         "Excel row that contains Size / Dimensions (across columns)",
         options=row_options,
         index=0,
+        key="size_row_cols",
     )
     material_row = st.selectbox(
         "Excel row that contains Material name (across columns)",
         options=["(none)"] + row_options,
         index=0,
+        key="material_row_cols",
     )
     qty_annum_row = st.selectbox(
         "Excel row that contains Quantity PER ANNUM (across columns)",
         options=["(none)"] + row_options,
         index=0,
+        key="qty_annum_row_cols",
     )
     qty_run_row = st.selectbox(
         "Excel row that contains Quantity PER RUN (across columns)",
         options=["(none)"] + row_options,
         index=0,
+        key="qty_run_row_cols",
     )
     runs_pa_row = st.selectbox(
         "Excel row that contains Runs PER ANNUM (across columns, optional)",
         options=["(none)"] + row_options,
         index=0,
+        key="runs_pa_row_cols",
     )
 
     # Convert "(none)" to None
@@ -667,6 +692,7 @@ elif layout_type == "Items are in columns (Foot Locker-style)":
     side_mode = st.selectbox(
         "Choose how DS/SS is stored:",
         ["Separate row", "Embedded in another row", "Not available (assume SS)"],
+        key="side_mode_cols",
     )
 
     side_row = None
@@ -676,12 +702,14 @@ elif layout_type == "Items are in columns (Foot Locker-style)":
         side_row = st.selectbox(
             "Excel row that contains DS/SS values (across columns)",
             options=row_options,
+            key="side_row_cols",
         )
     elif side_mode == "Embedded in another row":
         side_source_row = st.selectbox(
             "Excel row where DS/SS text appears (e.g. in Size or Description row)",
             options=row_options,
             index=row_options.index(size_row) if size_row in row_options else 0,
+            key="side_source_row_cols",
         )
 
     if st.button("Calculate SQM & build item table", key="calc_cols"):
@@ -966,12 +994,19 @@ if st.session_state["calc_df"] is not None:
             if not name:
                 st.warning("Please enter a snapshot name before saving.")
             else:
-                st.session_state["session_snapshots"][name] = {
+                snapshot_payload = {
                     "group_assignments": st.session_state["group_assignments"],
                     "group_prices": st.session_state["group_prices"],
                     "material_overrides": st.session_state["material_overrides"],
                     "extra_groups_to_show": st.session_state["extra_groups_to_show"],
+                    "ds_syn_input": st.session_state["ds_syn_input"],
+                    "ss_syn_input": st.session_state["ss_syn_input"],
+                    "double_sided_loading_percent": st.session_state["double_sided_loading_percent"],
+                    "layout_type_choice": st.session_state["layout_type_choice"],
+                    "hidden_cols_letters": st.session_state["hidden_cols_letters"],
+                    "hidden_rows_numbers": st.session_state["hidden_rows_numbers"],
                 }
+                st.session_state["session_snapshots"][name] = snapshot_payload
                 st.success(f"Saved snapshot '{name}'. You can load it later in this browser session.")
 
     if st.session_state["session_snapshots"]:
@@ -991,6 +1026,19 @@ if st.session_state["calc_df"] is not None:
                     st.session_state["group_prices"] = snap.get("group_prices", {})
                     st.session_state["material_overrides"] = snap.get("material_overrides", {})
                     st.session_state["extra_groups_to_show"] = snap.get("extra_groups_to_show", [])
+                    # restore config
+                    if "ds_syn_input" in snap:
+                        st.session_state["ds_syn_input"] = snap["ds_syn_input"]
+                    if "ss_syn_input" in snap:
+                        st.session_state["ss_syn_input"] = snap["ss_syn_input"]
+                    if "double_sided_loading_percent" in snap:
+                        st.session_state["double_sided_loading_percent"] = snap["double_sided_loading_percent"]
+                    if "layout_type_choice" in snap:
+                        st.session_state["layout_type_choice"] = snap["layout_type_choice"]
+                    if "hidden_cols_letters" in snap:
+                        st.session_state["hidden_cols_letters"] = snap["hidden_cols_letters"]
+                    if "hidden_rows_numbers" in snap:
+                        st.session_state["hidden_rows_numbers"] = snap["hidden_rows_numbers"]
                     st.success(f"Loaded snapshot '{snapshot_to_load}'. Rerun mappings if you've changed Excel.")
                 else:
                     st.info("Select a snapshot to load.")
@@ -1060,7 +1108,7 @@ if st.session_state["calc_df"] is not None:
     )
 
     # Apply DS loading to get effective price (AUD)
-    ds_factor = 1.0 + double_sided_loading_percent / 100.0
+    ds_factor = 1.0 + st.session_state["double_sided_loading_percent"] / 100.0
     calc_with_price["Effective Price per SQM (AUD)"] = calc_with_price.apply(
         lambda r: r["Base Price per SQM (AUD)"] * ds_factor
         if r.get("Side") == "DS"
@@ -1135,7 +1183,7 @@ if st.session_state["calc_df"] is not None:
     st.subheader("Final calculation table (with grouped pricing, formatted)")
     st.dataframe(display_df)
 
-    # Download calculated table (numeric, rounded) as Excel
+    # Download calculated table (numeric, rounded) as separate CALC workbook
     out_calc = BytesIO()
     calc_with_price.to_excel(out_calc, index=False, sheet_name="CALC")
     out_calc.seek(0)
@@ -1149,3 +1197,159 @@ if st.session_state["calc_df"] is not None:
             "spreadsheetml.sheet"
         ),
     )
+
+    # ---------- Write results back into original workbook ----------
+
+    st.subheader("Write SQM & pricing back into original workbook")
+
+    if layout_type == "Items are in rows (BP-style)":
+        st.caption("Choose which Excel COLUMNS should receive the SQM and price values for each row.")
+
+        letters = list(col_letters.keys())
+
+        sqm_annum_col_letter = select_letter(
+            "Column for SQM per annum (optional)",
+            options_letters=letters,
+            default_letter=None,
+            key="out_sqm_annum_col",
+            allow_none=True,
+        )
+        sqm_run_col_letter = select_letter(
+            "Column for SQM per run (optional)",
+            options_letters=letters,
+            default_letter=None,
+            key="out_sqm_run_col",
+            allow_none=True,
+        )
+        price_annum_col_letter = select_letter(
+            "Column for Price per annum (AUD) (optional)",
+            options_letters=letters,
+            default_letter=None,
+            key="out_price_annum_col",
+            allow_none=True,
+        )
+        price_run_col_letter = select_letter(
+            "Column for Price per run (AUD) (optional)",
+            options_letters=letters,
+            default_letter=None,
+            key="out_price_run_col",
+            allow_none=True,
+        )
+
+        if st.button("Build original workbook with SQM & prices filled (rows layout)"):
+            if not any([sqm_annum_col_letter, sqm_run_col_letter, price_annum_col_letter, price_run_col_letter]):
+                st.warning("Please choose at least one output column.")
+            else:
+                wb2 = load_workbook(BytesIO(file_bytes))
+                ws2 = wb2[sheet_name]
+
+                for _, r in calc_with_price.iterrows():
+                    src_row = r.get("Source Row")
+                    if pd.isna(src_row):
+                        continue
+                    excel_row = int(src_row)
+
+                    if sqm_annum_col_letter:
+                        val = r.get("SQM per annum")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{sqm_annum_col_letter}{excel_row}"] = float(val)
+                    if sqm_run_col_letter:
+                        val = r.get("SQM per run")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{sqm_run_col_letter}{excel_row}"] = float(val)
+                    if price_annum_col_letter:
+                        val = r.get("Price per annum (AUD)")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{price_annum_col_letter}{excel_row}"] = float(val)
+                    if price_run_col_letter:
+                        val = r.get("Price per run (AUD)")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{price_run_col_letter}{excel_row}"] = float(val)
+
+                out_buf2 = BytesIO()
+                wb2.save(out_buf2)
+                out_buf2.seek(0)
+
+                st.download_button(
+                    "Download ORIGINAL workbook with SQM & prices filled (rows)",
+                    data=out_buf2,
+                    file_name=f"{sheet_name}_with_pricing_rows.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+    elif layout_type == "Items are in columns (Foot Locker-style)":
+        st.caption("Choose which Excel ROWS should receive the SQM and price values across each material column.")
+
+        max_row_out, _ = df.shape
+        row_options2 = list(range(1, max_row_out + 2))  # include header if needed
+
+        sqm_annum_row = st.selectbox(
+            "Row for SQM per annum (across columns, optional)",
+            options=["(none)"] + row_options2,
+            index=0,
+            key="out_sqm_annum_row",
+        )
+        sqm_run_row = st.selectbox(
+            "Row for SQM per run (across columns, optional)",
+            options=["(none)"] + row_options2,
+            index=0,
+            key="out_sqm_run_row",
+        )
+        price_annum_row = st.selectbox(
+            "Row for Price per annum (AUD) (across columns, optional)",
+            options=["(none)"] + row_options2,
+            index=0,
+            key="out_price_annum_row",
+        )
+        price_run_row = st.selectbox(
+            "Row for Price per run (AUD) (across columns, optional)",
+            options=["(none)"] + row_options2,
+            index=0,
+            key="out_price_run_row",
+        )
+
+        sqm_annum_row = None if sqm_annum_row == "(none)" else sqm_annum_row
+        sqm_run_row = None if sqm_run_row == "(none)" else sqm_run_row
+        price_annum_row = None if price_annum_row == "(none)" else price_annum_row
+        price_run_row = None if price_run_row == "(none)" else price_run_row
+
+        if st.button("Build original workbook with SQM & prices filled (columns layout)"):
+            if not any([sqm_annum_row, sqm_run_row, price_annum_row, price_run_row]):
+                st.warning("Please choose at least one output row.")
+            else:
+                wb2 = load_workbook(BytesIO(file_bytes))
+                ws2 = wb2[sheet_name]
+
+                for _, r in calc_with_price.iterrows():
+                    src_col = r.get("Source Column")
+                    if src_col is None or (isinstance(src_col, float) and pd.isna(src_col)):
+                        continue
+                    col_letter = str(src_col)
+
+                    if sqm_annum_row is not None:
+                        val = r.get("SQM per annum")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{col_letter}{sqm_annum_row}"] = float(val)
+                    if sqm_run_row is not None:
+                        val = r.get("SQM per run")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{col_letter}{sqm_run_row}"] = float(val)
+                    if price_annum_row is not None:
+                        val = r.get("Price per annum (AUD)")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{col_letter}{price_annum_row}"] = float(val)
+                    if price_run_row is not None:
+                        val = r.get("Price per run (AUD)")
+                        if val is not None and not pd.isna(val):
+                            ws2[f"{col_letter}{price_run_row}"] = float(val)
+
+                out_buf2 = BytesIO()
+                wb2.save(out_buf2)
+                out_buf2.seek(0)
+
+                st.download_button(
+                    "Download ORIGINAL workbook with SQM & prices filled (columns)",
+                    data=out_buf2,
+                    file_name=f"{sheet_name}_with_pricing_columns.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
